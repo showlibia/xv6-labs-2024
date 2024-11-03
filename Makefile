@@ -194,7 +194,8 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
-
+	$U/_sleep\
+	$U/_pingpong\
 
 
 
@@ -321,6 +322,13 @@ qemu: $K/kernel fs.img
 qemu-gdb: $K/kernel .gdbinit fs.img
 	@echo "*** Now run 'gdb' in another window." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
+
+gdb: $K/kernel .gdbinit fs.img
+	@tmux new-session -d \
+		"$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)" && \
+		tmux split-window -h \
+		"riscv64-linux-gnu-gdb kernel/kernel -x .gdbinit -ex 'target remote 127.0.0.1:26000'" && \
+		tmux -2 attach-session -d
 
 ifeq ($(LAB),net)
 # try to generate a unique port for the echo server
