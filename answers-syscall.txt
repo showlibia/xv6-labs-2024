@@ -1,6 +1,6 @@
 1. usertrap() at kernel/trap.c call syscall()
 2. a7 = 0x7, which stands for SYS_exec
-3. M mode
+3. U mode
 4. lw	a3,0(zero)    a3
 5. address 0 is unused, the kernel can't access to it, scause=0xd which stands for Load page fault, it matches
 6. name=initcode pid=1
