@@ -132,6 +132,15 @@ found:
     return 0;
   }
 
+  // allocate one user and kernel shared page for usyscall read only 
+  if ((p->usyscallpage = (struct usyscall *)kalloc()) == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  p->usyscallpage->pid = p->pid;
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -158,6 +167,9 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->usyscallpage)
+    kfree((void *)p->usyscallpage);
+  p->usyscallpage = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -202,6 +214,13 @@ proc_pagetable(struct proc *p)
     return 0;
   }
 
+  if (mappages(pagetable, USYSCALL, PGSIZE, (uint64)(p->usyscallpage), PTE_R | PTE_U) < 0) {
+    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+    uvmunmap(pagetable, TRAPFRAME, 1, 0);
+    uvmfree(pagetable, 0);
+    return 0;
+  }
+
   return pagetable;
 }
 
@@ -212,6 +231,7 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  uvmunmap(pagetable, USYSCALL, 1, 0);
   uvmfree(pagetable, sz);
 }
 
@@ -263,11 +283,33 @@ growproc(int n)
   struct proc *p = myproc();
 
   sz = p->sz;
-  if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
+  uint64 oldsz = sz;
+  uint64 newsz = SUPERPGROUNDUP(sz);
+  int spgnum = n / SUPERPGSIZE;
+
+  if (n > 0) {
+    if (spgnum > 0 && sz < newsz) {
+      if ((newsz = uvmalloc(p->pagetable, sz, newsz, PTE_W)) == 0) {
+        return -1;
+      }
+      sz = newsz;
+      // 注意这里一定要计时将进程p的sz更新，否则可能由于下一步的malloc/mallocsuper失败导致直接返回-1
+      // 而p->sz未更新的情况。导致后面uvmfree时出错！
+      p->sz = sz;
+    }
+    // printf("growproc: spgnum = %d\n", spgnum);
+    if (spgnum > 0 && spgnum < 5) {
+      if ((newsz = uvmalloc_super(p->pagetable, sz, sz + spgnum * SUPERPGSIZE,
+                                  PTE_W)) == 0) {
+        return -1;
+      }
+      sz = newsz;
+      p->sz = sz;
+    }
+    if ((sz = uvmalloc(p->pagetable, sz, oldsz + n, PTE_W)) == 0) {
       return -1;
     }
-  } else if(n < 0){
+  } else if (n < 0) {
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz;
@@ -671,12 +713,12 @@ void
 procdump(void)
 {
   static char *states[] = {
-  [UNUSED]    "unused",
-  [USED]      "used",
-  [SLEEPING]  "sleep ",
-  [RUNNABLE]  "runble",
-  [RUNNING]   "run   ",
-  [ZOMBIE]    "zombie"
+  [UNUSED]    = "unused",
+  [USED]      = "used",
+  [SLEEPING]  = "sleep ",
+  [RUNNABLE]  = "runble",
+  [RUNNING]   = "run   ",
+  [ZOMBIE]    = "zombie"
   };
   struct proc *p;
   char *state;

@@ -2,6 +2,7 @@
 _*
 *.o
 *.d
+*.idx
 *.asm
 *.sym
 *.img
@@ -25,3 +26,4 @@ barrier
 .DS_Store
 *.dSYM
 *.pcap
+*.json
